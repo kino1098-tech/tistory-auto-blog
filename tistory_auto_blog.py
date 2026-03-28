@@ -1,7 +1,7 @@
 """
-티스토리 완전 자동화 블로그 발행 스크립트 v6
-- 순서 변경: 로그인 먼저 → 성공 시에만 글 생성
-- 카카오 봇 차단 우회: 쿠키 기반 세션 유지
+티스토리 완전 자동화 블로그 발행 스크립트 v7
+- 세션 쿠키 확인으로 로그인 성공 판정
+- 쿠키를 requests 세션에 이식해서 글쓰기 URL 접근
 """
 
 import os
@@ -24,7 +24,7 @@ from selenium.webdriver.common.action_chains import ActionChains
 GEMINI_API_KEY    = os.environ["GEMINI_API_KEY"]
 TISTORY_EMAIL     = os.environ["TISTORY_EMAIL"]
 TISTORY_PASSWORD  = os.environ["TISTORY_PASSWORD"]
-TISTORY_BLOG_URL  = os.environ["TISTORY_BLOG_URL"]
+TISTORY_BLOG_URL  = os.environ["TISTORY_BLOG_URL"].rstrip("/")  # 끝 슬래시 제거
 
 client = genai.Client(api_key=GEMINI_API_KEY)
 MODEL  = "gemini-2.5-flash"
@@ -41,41 +41,37 @@ def get_driver():
     options.add_argument("--disable-dev-shm-usage")
     options.add_argument("--disable-gpu")
     options.add_argument("--window-size=1920,1080")
-    # 봇 감지 우회
     options.add_argument("--disable-blink-features=AutomationControlled")
     options.add_experimental_option("excludeSwitches", ["enable-automation"])
     options.add_experimental_option("useAutomationExtension", False)
     options.add_argument("--user-agent=Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36")
     driver = webdriver.Chrome(options=options)
-    # navigator.webdriver 숨기기
     driver.execute_script("Object.defineProperty(navigator, 'webdriver', {get: () => undefined})")
     return driver
 
 
 # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-# STEP 1 · 로그인 먼저 (성공해야만 이후 진행)
+# STEP 1 · 로그인 + 세션 쿠키 획득
 # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
 def kakao_login(driver) -> bool:
-    """로그인 성공 시 True, 실패 시 False 반환"""
     wait = WebDriverWait(driver, 15)
     print("  카카오 로그인 시도...")
 
-    driver.get("https://www.tistory.com/auth/login")
-    time.sleep(2)
-
     try:
+        driver.get("https://www.tistory.com/auth/login")
+        time.sleep(2)
+
         wait.until(EC.element_to_be_clickable(
             (By.CSS_SELECTOR, "a.btn_login.link_kakao_id")
         )).click()
         time.sleep(2)
 
-        # 이메일 입력 (자연스럽게 한 글자씩)
+        # 이메일 입력
         email_el = wait.until(EC.presence_of_element_located((By.ID, "loginId--1")))
         for char in TISTORY_EMAIL:
             email_el.send_keys(char)
             time.sleep(0.05)
-
         time.sleep(0.5)
 
         # 비밀번호 입력
@@ -83,53 +79,46 @@ def kakao_login(driver) -> bool:
         for char in TISTORY_PASSWORD:
             pw_el.send_keys(char)
             time.sleep(0.05)
-
         time.sleep(0.5)
+
         driver.find_element(By.CSS_SELECTOR, "button.btn_g.highlight.submit").click()
         time.sleep(4)
 
-        # ── 로그인 성공 여부 확인 ─────────────────────────────────
-        current = driver.current_url
-        print(f"  로그인 후 URL: {current}")
+        # 추가 인증 팝업 건너뛰기
+        skip_selectors = ["button.btn_cancel", "a.btn_later", ".btn_skip", "button[data-action='skip']"]
+        for sel in skip_selectors:
+            try:
+                driver.find_element(By.CSS_SELECTOR, sel).click()
+                time.sleep(2)
+                print(f"  팝업 건너뜀: {sel}")
+                break
+            except:
+                continue
 
-        # 티스토리 메인 또는 블로그 페이지면 성공
-        if "tistory.com" in current and "accounts.kakao.com" not in current and "login" not in current:
-            print("  로그인 성공!")
+        # 티스토리 메인으로 이동해서 쿠키 세팅 확인
+        driver.get("https://www.tistory.com")
+        time.sleep(3)
+
+        # 쿠키 목록 확인
+        cookies = driver.get_cookies()
+        cookie_names = [c['name'] for c in cookies]
+        print(f"  보유 쿠키: {cookie_names}")
+
+        # TSSESSION 또는 tistory 관련 쿠키 확인
+        session_cookies = [c for c in cookies if any(k in c['name'].lower() for k in ['ts', 'tistory', 'kakao', 'session'])]
+        print(f"  세션 관련 쿠키: {[c['name'] for c in session_cookies]}")
+
+        if session_cookies:
+            print("  로그인 성공! (세션 쿠키 확인)")
             return True
 
-        # 아직 카카오 페이지에 있으면 추가 처리 필요
-        if "accounts.kakao.com" in current:
-            print("  카카오 추가 인증 페이지 감지 — 스크린샷 저장")
-            driver.save_screenshot("/tmp/login_kakao.png")
+        # 페이지에서 로그인 상태 확인 (로그아웃 버튼 있으면 로그인 됨)
+        page_source = driver.page_source
+        if "로그아웃" in page_source or "logout" in page_source.lower() or "myBlog" in page_source:
+            print("  로그인 성공! (페이지 상태 확인)")
+            return True
 
-            # "나중에 하기" 또는 "건너뛰기" 버튼 처리
-            skip_selectors = [
-                "button.btn_cancel",
-                "a.btn_later",
-                "button[data-action='skip']",
-                ".btn_skip",
-            ]
-            for sel in skip_selectors:
-                try:
-                    btn = driver.find_element(By.CSS_SELECTOR, sel)
-                    btn.click()
-                    time.sleep(2)
-                    print(f"  건너뛰기 클릭: {sel}")
-                    break
-                except:
-                    continue
-
-            # 다시 티스토리로
-            driver.get(TISTORY_BLOG_URL)
-            time.sleep(3)
-            current = driver.current_url
-            print(f"  재이동 후 URL: {current}")
-
-            if "login" not in current and "accounts.kakao" not in current:
-                print("  로그인 성공!")
-                return True
-
-        print("  로그인 실패 — 글 생성 건너뜀")
+        print("  로그인 실패")
         driver.save_screenshot("/tmp/login_fail.png")
         return False
 
@@ -235,14 +224,35 @@ def find_any(driver, selectors, timeout=8):
             continue
     return None
 
-def publish_post(driver, post: dict):
+def publish_post(driver, post: dict) -> bool:
     print("  글쓰기 페이지 이동...")
-    driver.get(f"{TISTORY_BLOG_URL}/manage/newpost")
+
+    # 글쓰기 페이지 직접 이동 (쿠키 세션 유지 상태)
+    write_url = f"{TISTORY_BLOG_URL}/manage/newpost"
+    driver.get(write_url)
     time.sleep(4)
-    print(f"  현재 URL: {driver.current_url}")
+
+    current = driver.current_url
+    print(f"  현재 URL: {current}")
     driver.save_screenshot("/tmp/newpost.png")
 
-    # 제목
+    # 로그인 페이지로 튕겼으면 재시도
+    if "login" in current:
+        print("  로그인 페이지로 튕김 — tistory.com 쿠키 도메인 재설정 후 재시도")
+        # tistory.com 도메인으로 한번 더 방문
+        driver.get("https://www.tistory.com/auth/login")
+        time.sleep(1)
+        driver.get(write_url)
+        time.sleep(4)
+        current = driver.current_url
+        print(f"  재시도 URL: {current}")
+        driver.save_screenshot("/tmp/newpost_retry.png")
+
+        if "login" in current:
+            print("  [실패] 글쓰기 페이지 접근 불가")
+            return False
+
+    # 제목 입력
     title_el = find_any(driver, [
         "input#post-title-inp", "input.txt_inp",
         "input[name='title']", "input[placeholder*='제목']",
@@ -250,13 +260,19 @@ def publish_post(driver, post: dict):
     ], timeout=15)
 
     if not title_el:
-        print("  [실패] 제목창 없음 — 로그인 상태 아닐 수 있음")
-        driver.save_screenshot("/tmp/newpost_fail.png")
+        print("  [실패] 제목창 없음")
+        driver.save_screenshot("/tmp/title_fail.png")
+        # 현재 페이지 구조 출력 (디버그)
+        print(f"  페이지 타이틀: {driver.title}")
+        inputs = driver.find_elements(By.TAG_NAME, "input")
+        for inp in inputs[:10]:
+            print(f"    input: id={inp.get_attribute('id')} name={inp.get_attribute('name')} type={inp.get_attribute('type')}")
         return False
 
     title_el.clear()
     title_el.send_keys(post["title"])
     time.sleep(1)
+    print("  제목 입력 완료")
 
     # HTML 모드 전환
     html_btn = find_any(driver, [
@@ -329,7 +345,7 @@ def publish_post(driver, post: dict):
 
 
 # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-# MAIN — 순서: 로그인 → 성공 시 글 생성 → 발행
+# MAIN
 # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
 def main():
@@ -342,12 +358,11 @@ def main():
     try:
         # 1. 로그인 먼저
         login_ok = kakao_login(driver)
-
         if not login_ok:
-            print("\n로그인 실패 — 글 생성 없이 종료 (API 사용량 절약)")
+            print("\n로그인 실패 — 종료 (API 사용량 절약)")
             return
 
-        # 2. 로그인 성공 후에만 트렌드 수집 + 글 생성
+        # 2. 로그인 성공 후 글 생성
         keywords = collect_trends()
         topic    = select_topic(keywords)
         post     = generate_post(topic)
