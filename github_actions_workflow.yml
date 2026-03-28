@@ -1,0 +1,36 @@
+# .github/workflows/auto_blog.yml
+# GitHub 레포 루트에 이 파일을 넣으면 매일 자동 실행됩니다
+
+name: 티스토리 자동 블로그 발행
+
+on:
+  schedule:
+    # 매일 오전 9시 (KST = UTC+9, 즉 UTC 00:00)
+    - cron: '0 0 * * *'
+  # 수동 실행도 가능하게 (테스트용)
+  workflow_dispatch:
+
+jobs:
+  publish:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: 코드 체크아웃
+        uses: actions/checkout@v4
+
+      - name: Python 설정
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      - name: 라이브러리 설치
+        run: pip install anthropic requests
+
+      - name: 블로그 자동 발행 실행
+        env:
+          CLAUDE_API_KEY:         ${{ secrets.CLAUDE_API_KEY }}
+          TISTORY_ACCESS_TOKEN:   ${{ secrets.TISTORY_ACCESS_TOKEN }}
+          TISTORY_BLOG_NAME:      ${{ secrets.TISTORY_BLOG_NAME }}
+          NAVER_CLIENT_ID:        ${{ secrets.NAVER_CLIENT_ID }}
+          NAVER_CLIENT_SECRET:    ${{ secrets.NAVER_CLIENT_SECRET }}
+        run: python tistory_auto_blog.py
