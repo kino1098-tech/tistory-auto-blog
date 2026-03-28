@@ -2,40 +2,37 @@ name: 티스토리 자동 블로그 발행
 
 on:
   schedule:
-    - cron: '0 0 * * *'
-  workflow_dispatch:
+    - cron: '0 0 * * *'   # 매일 오전 9시 KST
+  workflow_dispatch:        # 수동 실행 가능
 
 jobs:
   publish:
     runs-on: ubuntu-latest
+
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-python@v5
+      - name: 코드 체크아웃
+        uses: actions/checkout@v4
+
+      - name: Python 설정
+        uses: actions/setup-python@v5
         with:
           python-version: '3.11'
-      - run: pip install anthropic requests
-      - run: python tistory_auto_blog.py
-        env:
-          CLAUDE_API_KEY: ${{ secrets.CLAUDE_API_KEY }}
-          TISTORY_ACCESS_TOKEN: ${{ secrets.TISTORY_ACCESS_TOKEN }}
-          TISTORY_BLOG_NAME: ${{ secrets.TISTORY_BLOG_NAME }}name: 티스토리 자동 블로그 발행
 
-on:
-  schedule:
-    - cron: '0 0 * * *'
-  workflow_dispatch:
+      - name: Chrome 설치
+        uses: browser-actions/setup-chrome@v1
 
-jobs:
-  publish:
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-python@v5
-        with:
-          python-version: '3.11'
-      - run: pip install anthropic requests
-      - run: python tistory_auto_blog.py
+      - name: ChromeDriver 설치
+        uses: nanasess/setup-chromedriver@v2
+
+      - name: 라이브러리 설치
+        run: pip install anthropic requests selenium
+
+      - name: 블로그 자동 발행 실행
         env:
-          CLAUDE_API_KEY: ${{ secrets.CLAUDE_API_KEY }}
-          TISTORY_ACCESS_TOKEN: ${{ secrets.TISTORY_ACCESS_TOKEN }}
-          TISTORY_BLOG_NAME: ${{ secrets.TISTORY_BLOG_NAME }}
+          CLAUDE_API_KEY:       ${{ secrets.CLAUDE_API_KEY }}
+          TISTORY_EMAIL:        ${{ secrets.TISTORY_EMAIL }}
+          TISTORY_PASSWORD:     ${{ secrets.TISTORY_PASSWORD }}
+          TISTORY_BLOG_URL:     ${{ secrets.TISTORY_BLOG_URL }}
+          NAVER_CLIENT_ID:      ${{ secrets.NAVER_CLIENT_ID }}
+          NAVER_CLIENT_SECRET:  ${{ secrets.NAVER_CLIENT_SECRET }}
+        run: python tistory_auto_blog.py
