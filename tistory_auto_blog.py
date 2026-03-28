@@ -1,8 +1,8 @@
 """
-티스토리 완전 자동화 블로그 발행 스크립트 v2
-- Google Trends RSS + 네이버 DataLab으로 트렌드 수집
-- Claude API로 주제 선정 → SEO/GEO 최적화 글 + 카드뉴스 생성
-- Selenium으로 티스토리 직접 로그인 후 발행 (Open API 대체)
+티스토리 완전 자동화 블로그 발행 스크립트 v3
+- Google Trends RSS로 트렌드 수집
+- Gemini API (무료)로 주제 선정 + SEO/GEO 글 + 카드뉴스 생성
+- Selenium으로 티스토리 직접 로그인 후 발행
 """
 
 import os
@@ -12,7 +12,7 @@ import requests
 import xml.etree.ElementTree as ET
 from datetime import datetime
 
-import anthropic
+import google.generativeai as genai
 from selenium import webdriver
 from selenium.webdriver.common.by import By
 from selenium.webdriver.common.keys import Keys
@@ -20,15 +20,14 @@ from selenium.webdriver.chrome.options import Options
 from selenium.webdriver.support.ui import WebDriverWait
 from selenium.webdriver.support import expected_conditions as EC
 
-# ── 환경변수 (GitHub Actions Secrets에 등록) ──────────────────────────
-CLAUDE_API_KEY       = os.environ["CLAUDE_API_KEY"]
-TISTORY_EMAIL        = os.environ["TISTORY_EMAIL"]        # 카카오 로그인 이메일
-TISTORY_PASSWORD     = os.environ["TISTORY_PASSWORD"]     # 카카오 비밀번호
-TISTORY_BLOG_URL     = os.environ["TISTORY_BLOG_URL"]     # ex) https://myblog.tistory.com
-NAVER_CLIENT_ID      = os.environ.get("NAVER_CLIENT_ID", "")
-NAVER_CLIENT_SECRET  = os.environ.get("NAVER_CLIENT_SECRET", "")
+# ── 환경변수 (GitHub Actions Secrets) ────────────────────────────
+GEMINI_API_KEY      = os.environ["GEMINI_API_KEY"]
+TISTORY_EMAIL       = os.environ["TISTORY_EMAIL"]
+TISTORY_PASSWORD    = os.environ["TISTORY_PASSWORD"]
+TISTORY_BLOG_URL    = os.environ["TISTORY_BLOG_URL"]
 
-client = anthropic.Anthropic(api_key=CLAUDE_API_KEY)
+genai.configure(api_key=GEMINI_API_KEY)
+model = genai.GenerativeModel("gemini-1.5-flash")  # 무료 티어 모델
 
 
 # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
@@ -63,7 +62,7 @@ def collect_trends() -> list[str]:
 
 
 # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-# STEP 2 · Claude가 주제 선정
+# STEP 2 · Gemini가 주제 선정
 # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
 TOPIC_PROMPT = """
@@ -75,7 +74,7 @@ TOPIC_PROMPT = """
 2. 금융/정책/건강 카테고리 우선 (광고 단가 높음)
 3. 2026년 현재 유효한 정보
 
-JSON만 출력 (다른 텍스트 없이):
+JSON만 출력 (다른 텍스트, 마크다운 없이 순수 JSON만):
 {{"topic":"제목","main_keyword":"핵심키워드","sub_keywords":["연관1","연관2","연관3"],"category":"카테고리"}}
 
 트렌드 키워드:
@@ -84,20 +83,22 @@ JSON만 출력 (다른 텍스트 없이):
 
 def select_topic(keywords: list[str]) -> dict:
     print("주제 선정 중...")
-    res = client.messages.create(
-        model="claude-sonnet-4-5",
-        max_tokens=512,
-        messages=[{"role": "user", "content": TOPIC_PROMPT.format(
-            keywords="\n".join(f"- {k}" for k in keywords[:30])
-        )}]
-    )
-    raw = res.content[0].text.strip()
+    res = model.generate_content(TOPIC_PROMPT.format(
+        keywords="\n".join(f"- {k}" for k in keywords[:30])
+    ))
+    raw = res.text.strip()
+    # 마크다운 코드블록 제거
+    if "```" in raw:
+        raw = raw.split("```")[1]
+        if raw.startswith("json"):
+            raw = raw[4:]
     try:
-        topic = json.loads(raw)
+        topic = json.loads(raw.strip())
         print(f"  선정 주제: {topic['topic']}")
         return topic
     except:
-        return {"topic": keywords[0], "main_keyword": keywords[0],
+        fallback = keywords[0] if keywords else "2026 청년 지원금 총정리"
+        return {"topic": fallback, "main_keyword": fallback,
                 "sub_keywords": ["신청방법", "자격조건", "지원금액"], "category": "정보"}
 
 
@@ -136,24 +137,21 @@ BLOG_PROMPT = """
 </div>
 색상: 핵심요약=#3C3489 수치통계=#0F6E56 주의조건=#854F0B 절차방법=#185FA5
 
-[출력 형식] JSON만 출력 (마크다운 코드블록 없이):
+[출력 형식]
+JSON만 출력 (마크다운 코드블록 없이, 순수 JSON만):
 {{"title":"H1제목","meta_description":"메타설명150자이내","tags":["태그1","태그2","태그3","태그4","태그5"],"content":"HTML전체본문"}}
 """
 
 def generate_post(topic: dict) -> dict:
     print("글 작성 중...")
-    res = client.messages.create(
-        model="claude-sonnet-4-5",
-        max_tokens=4096,
-        messages=[{"role": "user", "content": BLOG_PROMPT.format(
-            topic=topic["topic"],
-            main_keyword=topic["main_keyword"],
-            sub_keywords=", ".join(topic["sub_keywords"]),
-            today=datetime.now().strftime("%Y년 %m월 %d일")
-        )}]
-    )
-    raw = res.content[0].text.strip()
-    if raw.startswith("```"):
+    res = model.generate_content(BLOG_PROMPT.format(
+        topic=topic["topic"],
+        main_keyword=topic["main_keyword"],
+        sub_keywords=", ".join(topic["sub_keywords"]),
+        today=datetime.now().strftime("%Y년 %m월 %d일")
+    ))
+    raw = res.text.strip()
+    if "```" in raw:
         raw = raw.split("```")[1]
         if raw.startswith("json"):
             raw = raw[4:]
@@ -164,7 +162,8 @@ def generate_post(topic: dict) -> dict:
         return post
     except Exception as e:
         print(f"  JSON 파싱 오류: {e}")
-        return {"title": topic["topic"], "meta_description": "", "tags": topic["sub_keywords"], "content": raw}
+        return {"title": topic["topic"], "meta_description": "",
+                "tags": topic["sub_keywords"], "content": raw}
 
 
 # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
@@ -172,7 +171,6 @@ def generate_post(topic: dict) -> dict:
 # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
 def get_driver() -> webdriver.Chrome:
-    """GitHub Actions 환경용 headless Chrome 설정"""
     options = Options()
     options.add_argument("--headless")
     options.add_argument("--no-sandbox")
@@ -183,47 +181,38 @@ def get_driver() -> webdriver.Chrome:
     return webdriver.Chrome(options=options)
 
 def kakao_login(driver: webdriver.Chrome):
-    """카카오 계정으로 티스토리 로그인"""
     print("  카카오 로그인 중...")
     wait = WebDriverWait(driver, 15)
 
-    # 티스토리 로그인 페이지 이동
     driver.get("https://www.tistory.com/auth/login")
     time.sleep(2)
 
-    # 카카오 로그인 버튼 클릭
     kakao_btn = wait.until(EC.element_to_be_clickable(
         (By.CSS_SELECTOR, "a.btn_login.link_kakao_id")
     ))
     kakao_btn.click()
     time.sleep(2)
 
-    # 이메일 입력
     email_input = wait.until(EC.presence_of_element_located((By.ID, "loginId--1")))
     email_input.clear()
     email_input.send_keys(TISTORY_EMAIL)
 
-    # 비밀번호 입력
     pw_input = driver.find_element(By.ID, "password--2")
     pw_input.clear()
     pw_input.send_keys(TISTORY_PASSWORD)
 
-    # 로그인 버튼 클릭
     driver.find_element(By.CSS_SELECTOR, "button.btn_g.highlight.submit").click()
     time.sleep(3)
     print("  로그인 완료")
 
-def publish_post(driver: webdriver.Chrome, post: dict, topic: dict):
-    """티스토리 글쓰기 → HTML 모드로 내용 입력 → 발행"""
+def publish_post(driver: webdriver.Chrome, post: dict):
     wait = WebDriverWait(driver, 20)
     print("  글 발행 중...")
 
-    # 글쓰기 페이지 이동
-    write_url = f"{TISTORY_BLOG_URL}/manage/newpost"
-    driver.get(write_url)
+    driver.get(f"{TISTORY_BLOG_URL}/manage/newpost")
     time.sleep(3)
 
-    # ── 제목 입력 ──────────────────────────────────────────────────
+    # 제목 입력
     title_area = wait.until(EC.presence_of_element_located(
         (By.CSS_SELECTOR, "input#post-title-inp, textarea.txt_area[placeholder*='제목']")
     ))
@@ -231,8 +220,7 @@ def publish_post(driver: webdriver.Chrome, post: dict, topic: dict):
     title_area.send_keys(post["title"])
     time.sleep(1)
 
-    # ── HTML 모드로 전환 ───────────────────────────────────────────
-    # 에디터 우측 상단 "HTML" 버튼 클릭
+    # HTML 모드 전환
     try:
         html_btn = wait.until(EC.element_to_be_clickable(
             (By.CSS_SELECTOR, "button.btn_switch, button[data-type='html'], .editor-mode-html")
@@ -240,28 +228,34 @@ def publish_post(driver: webdriver.Chrome, post: dict, topic: dict):
         html_btn.click()
         time.sleep(1)
     except:
-        # 버튼 못 찾으면 단축키 시도 (Ctrl+Shift+H)
         from selenium.webdriver.common.action_chains import ActionChains
         ActionChains(driver).key_down(Keys.CONTROL).key_down(Keys.SHIFT).send_keys("h").key_up(Keys.SHIFT).key_up(Keys.CONTROL).perform()
         time.sleep(1)
 
-    # ── 본문 입력 ──────────────────────────────────────────────────
-    # HTML 편집 영역에 내용 삽입 (JavaScript 사용 — 긴 HTML은 send_keys보다 안정적)
-    content_area = wait.until(EC.presence_of_element_located(
-        (By.CSS_SELECTOR, "textarea.CodeMirror-scroll, div.CodeMirror, #content-area, .editor-content")
-    ))
+    # 본문 입력 (JavaScript로 주입 — 긴 HTML 안정적)
     driver.execute_script("""
-        var editor = document.querySelector('textarea.CodeMirror-scroll, div.CodeMirror textarea, #content-area');
-        if (editor) {
-            editor.value = arguments[0];
-            editor.dispatchEvent(new Event('input', { bubbles: true }));
+        var selectors = [
+            'textarea.CodeMirror-scroll',
+            'div.CodeMirror textarea',
+            '#content-area',
+            '.editor-content textarea'
+        ];
+        for (var s of selectors) {
+            var el = document.querySelector(s);
+            if (el) {
+                el.value = arguments[0];
+                el.dispatchEvent(new Event('input', { bubbles: true }));
+                break;
+            }
         }
     """, post["content"])
     time.sleep(1)
 
-    # ── 태그 입력 ──────────────────────────────────────────────────
+    # 태그 입력
     try:
-        tag_input = driver.find_element(By.CSS_SELECTOR, "input#tagText, input.tag-input, input[placeholder*='태그']")
+        tag_input = driver.find_element(
+            By.CSS_SELECTOR, "input#tagText, input.tag-input, input[placeholder*='태그']"
+        )
         for tag in post.get("tags", [])[:5]:
             tag_input.clear()
             tag_input.send_keys(tag)
@@ -270,46 +264,38 @@ def publish_post(driver: webdriver.Chrome, post: dict, topic: dict):
     except Exception as e:
         print(f"  태그 입력 건너뜀: {e}")
 
-    # ── 공개 발행 ──────────────────────────────────────────────────
+    # 발행
     try:
-        # 발행 버튼 클릭
         publish_btn = wait.until(EC.element_to_be_clickable(
             (By.CSS_SELECTOR, "button.btn_publish, button#publish-btn, button[data-action='publish']")
         ))
         publish_btn.click()
         time.sleep(2)
 
-        # 공개 옵션 선택 (팝업이 뜨는 경우)
         try:
             public_opt = wait.until(EC.element_to_be_clickable(
                 (By.CSS_SELECTOR, "label[for='open20'], input[value='20'], .btn-open-public")
             ))
             public_opt.click()
             time.sleep(0.5)
-
-            # 최종 발행 확인 버튼
             confirm_btn = driver.find_element(
                 By.CSS_SELECTOR, "button.btn_confirm, button.btn-publish-confirm, button.btn_action"
             )
             confirm_btn.click()
             time.sleep(2)
         except:
-            pass  # 팝업 없이 바로 발행된 경우
+            pass
 
-        print(f"  발행 완료: {driver.current_url}")
+        print(f"  발행 완료!")
 
     except Exception as e:
         print(f"  발행 버튼 오류: {e}")
-        # 최후 수단: Ctrl+Enter
-        from selenium.webdriver.common.action_chains import ActionChains
-        ActionChains(driver).key_down(Keys.CONTROL).send_keys(Keys.RETURN).key_up(Keys.CONTROL).perform()
-        time.sleep(2)
 
-def publish_to_tistory(post: dict, topic: dict):
+def publish_to_tistory(post: dict):
     driver = get_driver()
     try:
         kakao_login(driver)
-        publish_post(driver, post, topic)
+        publish_post(driver, post)
     finally:
         driver.quit()
 
@@ -329,7 +315,7 @@ def main():
 
     topic = select_topic(keywords)
     post  = generate_post(topic)
-    publish_to_tistory(post, topic)
+    publish_to_tistory(post)
 
     print(f"\n{'='*50}")
     print("자동화 완료!")
