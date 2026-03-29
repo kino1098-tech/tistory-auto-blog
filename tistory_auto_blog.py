@@ -29,6 +29,22 @@ TISTORY_BLOG_URL  = os.environ["TISTORY_BLOG_URL"].rstrip("/")
 client = genai.Client(api_key=GEMINI_API_KEY)
 MODEL  = "gemini-2.0-flash"
 
+def gemini_call(prompt: str, max_retry=5) -> str:
+    """429 Rate Limit 시 자동 재시도"""
+    for attempt in range(1, max_retry + 1):
+        try:
+            res = client.models.generate_content(model=MODEL, contents=prompt)
+            return res.text.strip()
+        except Exception as e:
+            err = str(e)
+            if "429" in err or "RESOURCE_EXHAUSTED" in err:
+                wait = 65  # 65초 대기
+                print(f"  API 한도 초과 — {wait}초 후 재시도 ({attempt}/{max_retry})")
+                time.sleep(wait)
+            else:
+                raise
+    raise Exception("Gemini API 재시도 초과")
+
 
 # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 # 드라이버
@@ -182,7 +198,7 @@ def select_topic(keywords: list[str]) -> dict:
 키워드:
 {chr(10).join(f"- {k}" for k in keywords[:25])}"""
 
-    raw = client.models.generate_content(model=MODEL, contents=prompt).text.strip()
+    raw = gemini_call(prompt)
     if "```" in raw:
         raw = raw.split("```")[1]
         if raw.startswith("json"): raw = raw[4:]
@@ -214,7 +230,7 @@ H2 4~6개, 키워드 5회 이상, 1500자 이상, FAQ 3개 이상.
 순수 JSON만 (마크다운 없이):
 {{"title":"제목","meta_description":"설명","tags":["태그1","태그2","태그3","태그4","태그5"],"content":"HTML본문"}}"""
 
-    raw = client.models.generate_content(model=MODEL, contents=prompt).text.strip()
+    raw = gemini_call(prompt)
     if "```" in raw:
         raw = raw.split("```")[1]
         if raw.startswith("json"): raw = raw[4:]
