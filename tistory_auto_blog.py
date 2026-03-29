@@ -167,87 +167,81 @@ def generate_post(topic: dict) -> dict:
 # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
 def make_thumbnail_html(topic: dict, post: dict) -> str:
-    """1:1 썸네일 카드 HTML 생성"""
+    """1:1 썸네일 카드 HTML — 심플 카드뉴스 스타일"""
     color = topic.get("color", "#3C3489")
-    # 색상에서 밝은 버전 계산 (투명도로 처리)
+    category = topic.get("category", "정보")
+    title = post["title"]
+    # 제목 20자 초과 시 줄바꿈
+    if len(title) > 20:
+        mid = len(title) // 2
+        # 공백 기준으로 자연스럽게 줄바꿈
+        parts = title.split(" ")
+        line1, line2 = [], []
+        total = 0
+        for p in parts:
+            if total < len(title) // 2:
+                line1.append(p)
+                total += len(p) + 1
+            else:
+                line2.append(p)
+        title_html = " ".join(line1) + "<br>" + " ".join(line2)
+    else:
+        title_html = title
+    kw_tags = "".join(
+        f'<span style="background:rgba(255,255,255,0.2);color:#fff;font-size:22px;padding:8px 20px;border-radius:30px;margin:6px;">#{kw}</span>'
+        for kw in topic["sub_keywords"][:3]
+    )
     return f"""<!DOCTYPE html>
-<html>
-<head>
-<meta charset="utf-8">
-<style>
-  * {{ margin:0; padding:0; box-sizing:border-box; }}
-  body {{ width:800px; height:800px; overflow:hidden; }}
-  .card {{
-    width:800px; height:800px;
-    background: {color};
-    display:flex; flex-direction:column;
-    justify-content:center; align-items:center;
-    padding:60px;
-    position:relative;
-    font-family: 'Noto Sans CJK KR', 'Noto Sans KR', 'Apple SD Gothic Neo', sans-serif;
-  }}
-  .bg-circle {{
-    position:absolute; border-radius:50%;
-    background:rgba(255,255,255,0.06);
-  }}
-  .category {{
-    font-size:18px; color:rgba(255,255,255,0.75);
-    letter-spacing:3px; margin-bottom:28px;
-    text-transform:uppercase;
-  }}
-  .title {{
-    font-size:44px; font-weight:700; color:#fff;
-    text-align:center; line-height:1.35;
-    margin-bottom:36px; word-break:keep-all;
-  }}
-  .keyword {{
-    display:flex; gap:10px; flex-wrap:wrap; justify-content:center;
-  }}
-  .kw-tag {{
-    background:rgba(255,255,255,0.18);
-    color:#fff; font-size:15px;
-    padding:6px 16px; border-radius:20px;
-  }}
-  .bottom {{
-    position:absolute; bottom:40px;
-    font-size:15px; color:rgba(255,255,255,0.5);
-    letter-spacing:1px;
-  }}
-  .year-badge {{
-    position:absolute; top:44px; right:50px;
-    background:rgba(255,255,255,0.15);
-    color:#fff; font-size:16px; font-weight:600;
-    padding:6px 16px; border-radius:20px;
-  }}
-</style>
-</head>
-<body>
-<div class="card">
-  <div class="bg-circle" style="width:500px;height:500px;top:-150px;right:-150px;"></div>
-  <div class="bg-circle" style="width:300px;height:300px;bottom:-80px;left:-80px;"></div>
-  <div class="year-badge">2026</div>
-  <div class="category">{topic.get('category', '정보')}</div>
-  <div class="title">{post['title'][:30]}{'...' if len(post['title']) > 30 else ''}</div>
-  <div class="keyword">
-    {''.join(f'<span class="kw-tag">#{kw}</span>' for kw in topic['sub_keywords'][:3])}
+<html><head><meta charset="utf-8"></head>
+<body style="margin:0;padding:0;width:800px;height:800px;overflow:hidden;background:{color};">
+<div style="width:800px;height:800px;background:{color};display:flex;flex-direction:column;justify-content:center;align-items:center;padding:70px;box-sizing:border-box;position:relative;">
+
+  <!-- 상단 카테고리 뱃지 -->
+  <div style="position:absolute;top:52px;left:60px;background:rgba(255,255,255,0.2);color:#fff;font-size:22px;font-weight:600;padding:8px 22px;border-radius:30px;letter-spacing:2px;">
+    {category}
   </div>
-  <div class="bottom">tistory blog · {datetime.now().strftime('%Y.%m.%d')}</div>
+
+  <!-- 연도 뱃지 -->
+  <div style="position:absolute;top:52px;right:60px;background:rgba(0,0,0,0.2);color:#fff;font-size:22px;font-weight:700;padding:8px 22px;border-radius:30px;">
+    2026
+  </div>
+
+  <!-- 구분선 -->
+  <div style="width:60px;height:5px;background:rgba(255,255,255,0.5);border-radius:3px;margin-bottom:32px;"></div>
+
+  <!-- 메인 제목 -->
+  <div style="font-size:52px;font-weight:800;color:#fff;text-align:center;line-height:1.3;word-break:keep-all;margin-bottom:40px;text-shadow:0 2px 12px rgba(0,0,0,0.15);">
+    {title_html}
+  </div>
+
+  <!-- 키워드 태그 -->
+  <div style="display:flex;flex-wrap:wrap;justify-content:center;gap:0;">
+    {kw_tags}
+  </div>
+
+  <!-- 하단 바 -->
+  <div style="position:absolute;bottom:0;left:0;right:0;height:8px;background:rgba(0,0,0,0.2);"></div>
 </div>
-</body>
-</html>"""
+</body></html>"""
 
 
 def html_to_png(html_content: str, output_path: str) -> bool:
     """Playwright로 HTML → PNG 변환"""
     try:
         from playwright.sync_api import sync_playwright
+        # HTML 파일로 저장 후 file:// 로드 (set_content보다 폰트 렌더링 안정적)
+        tmp_html = output_path.replace(".png", "_tmp.html")
+        with open(tmp_html, "w", encoding="utf-8") as f:
+            f.write(html_content)
         with sync_playwright() as p:
-            browser = p.chromium.launch()
+            browser = p.chromium.launch(args=["--no-sandbox", "--disable-setuid-sandbox"])
             page = browser.new_page(viewport={"width": 800, "height": 800})
-            page.set_content(html_content, wait_until="networkidle")
-            page.screenshot(path=output_path, clip={"x": 0, "y": 0, "width": 800, "height": 800})
+            page.goto(f"file://{tmp_html}")
+            page.wait_for_timeout(1000)  # 폰트 로딩 대기
+            page.screenshot(path=output_path, full_page=False,
+                          clip={"x": 0, "y": 0, "width": 800, "height": 800})
             browser.close()
-        print(f"  썸네일 생성: {output_path}")
+        print(f"  썸네일 생성 완료: {output_path}")
         return True
     except Exception as e:
         print(f"  썸네일 생성 실패: {e}")
@@ -313,14 +307,17 @@ def send_email(posts: list[dict], topics: list[dict], thumbnails: list[str | Non
     아래 HTML을 티스토리 에디터 → <b>HTML 모드</b>에서 클릭 후 전체선택(Ctrl+A) → 붙여넣기
   </div>
 
-  <textarea onclick="this.select()" style="width:100%;height:180px;font-family:monospace;font-size:11px;padding:10px;border:1px solid #dee2e6;border-radius:8px;box-sizing:border-box;resize:vertical;">{post['content']}</textarea>
-
-  <details style="margin-top:12px;">
-    <summary style="cursor:pointer;color:#3C3489;font-weight:500;font-size:14px;padding:8px 0;">미리보기 펼치기 ▼</summary>
-    <div style="margin-top:12px;padding:20px;border:1px solid #dee2e6;border-radius:8px;background:#fafafa;">
-      {post['content']}
+  <div style="background:#1e1e1e;border-radius:8px;padding:4px;margin-top:4px;">
+    <div style="padding:6px 12px;display:flex;justify-content:space-between;align-items:center;margin-bottom:4px;">
+      <span style="color:#888;font-size:11px;">HTML 코드</span>
+      <span style="color:#4ec9b0;font-size:11px;">클릭 → 전체선택</span>
     </div>
-  </details>
+    <textarea id="htmlcontent{i}" onclick="this.select()" style="width:100%;height:180px;font-family:monospace;font-size:11px;padding:10px;border:none;border-radius:6px;box-sizing:border-box;resize:vertical;background:#2d2d2d;color:#d4d4d4;outline:none;">{post['content']}</textarea>
+  </div>
+
+  <div style="margin-top:6px;padding:8px 12px;background:#e8f4fd;border-radius:6px;font-size:12px;color:#0969da;">
+    위 박스 클릭 → Ctrl+A (전체선택) → Ctrl+C (복사) → 티스토리 HTML 모드에 Ctrl+V
+  </div>
 </div>
 """
 
