@@ -71,30 +71,18 @@ def get_driver():
 # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
 def is_logged_in(driver) -> bool:
-    """티스토리 세션 쿠키 확인"""
-    driver.get("https://www.tistory.com")
-    time.sleep(2)
-    cookies = driver.get_cookies()
-    names = [c['name'] for c in cookies]
-    print(f"  보유 쿠키: {names}")
+    """블로그 관리 페이지 직접 접근으로 로그인 확인"""
+    driver.get(f"{TISTORY_BLOG_URL}/manage")
+    time.sleep(3)
+    current = driver.current_url
+    cookies = [c['name'] for c in driver.get_cookies()]
+    print(f"  보유 쿠키: {cookies}")
+    print(f"  관리 페이지 URL: {current}")
 
-    # 티스토리 세션 쿠키: __T_, __T_SECURE, IS_TC 등
-    session_keys = ['__T_', '__T_SECURE', 'IS_TC', 'TSSESSION', 'tistory']
-    for name in names:
-        for key in session_keys:
-            if key.lower() in name.lower():
-                print(f"  세션 쿠키 확인: {name}")
-                return True
-
-    # 쿠키 없어도 페이지에서 로그인 상태 확인
-    try:
-        driver.get(f"{TISTORY_BLOG_URL}/manage")
-        time.sleep(2)
-        if "login" not in driver.current_url:
-            print(f"  관리 페이지 접근 성공: {driver.current_url}")
-            return True
-    except:
-        pass
+    # 관리 페이지 접근 성공 = 로그인 확실
+    if "login" not in current and ("manage" in current or TISTORY_BLOG_URL.split("//")[1] in current):
+        print("  로그인 확인 (관리 페이지 접근 성공)")
+        return True
 
     return False
 
