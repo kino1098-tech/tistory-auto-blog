@@ -27,7 +27,7 @@ TISTORY_PASSWORD  = os.environ["TISTORY_PASSWORD"]
 TISTORY_BLOG_URL  = os.environ["TISTORY_BLOG_URL"].rstrip("/")
 
 client = genai.Client(api_key=GEMINI_API_KEY)
-MODEL  = "gemini-2.0-flash"
+MODEL  = "gemini-2.5-flash"
 
 def gemini_call(prompt: str, max_retry=5) -> str:
     """429 Rate Limit 시 자동 재시도"""
