@@ -121,13 +121,14 @@ def generate_post(topic: dict) -> dict:
 
 [글쓰기 원칙]
 - 도입부: 날짜 없이 시작. 독자가 "맞아 나도 궁금했어!" 하게 만드는 첫 문장
-- 길이: 800~1000자 (짧고 핵심만, 스크롤 부담 없게)
-- 문체: 친근하고 명확하게. 어려운 용어 최소화
-- 구조: H2 3~4개만 (많으면 X)
-- 핵심 키워드 3~4회만 자연스럽게
+- 길이: 반드시 800자 이내로 작성 (이것이 최우선 규칙)
+- H2 소제목 최대 3개, H3 사용 금지
+- 핵심 키워드 2~3회만
 - 날짜/작성일 절대 넣지 말 것
+- 문체: 친근하고 짧게. 한 문단 3줄 이내
+- 긴 설명 금지 — 핵심 한 줄로
 
-[카드뉴스] 2~3개만 (핵심 포인트만):
+[카드뉴스] 딱 2개만 (핵심 포인트만):
 <div style="background:#3C3489;border-radius:14px;padding:24px 20px;color:#fff;margin:1.2rem 0;">
 <div style="font-size:11px;opacity:0.65;margin-bottom:6px;">포인트</div>
 <div style="font-size:18px;font-weight:500;margin-bottom:8px;">카드 제목</div>
@@ -142,7 +143,7 @@ def generate_post(topic: dict) -> dict:
   <span style="margin-left:auto;color:#868e96;">→</span>
 </a>
 
-[마무리] FAQ 2개만 (가장 많이 검색하는 질문)
+[마무리] FAQ 1~2개만, 짧게
 
 순수 JSON만 (마크다운 없이):
 {{"title":"제목","meta_description":"설명120자이내","tags":["태그1","태그2","태그3","태그4","태그5"],"content":"HTML본문전체","related_links":[{{"name":"사이트명","url":"https://..."}}]}}"""
@@ -183,7 +184,7 @@ def make_thumbnail_html(topic: dict, post: dict) -> str:
     justify-content:center; align-items:center;
     padding:60px;
     position:relative;
-    font-family: 'Apple SD Gothic Neo', 'Noto Sans KR', sans-serif;
+    font-family: 'Noto Sans CJK KR', 'Noto Sans KR', 'Apple SD Gothic Neo', sans-serif;
   }}
   .bg-circle {{
     position:absolute; border-radius:50%;
