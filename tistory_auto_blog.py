@@ -92,62 +92,81 @@ def is_logged_in(driver) -> bool:
 # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
 def kakao_login(driver) -> bool:
-    wait = WebDriverWait(driver, 15)
-
-    for attempt in range(1, 4):  # 최대 3회
+    for attempt in range(1, 4):
         print(f"  로그인 시도 {attempt}/3...")
         try:
             driver.get("https://www.tistory.com/auth/login")
             time.sleep(2)
+            driver.save_screenshot(f"/tmp/step1_login_{attempt}.png")
 
-            wait.until(EC.element_to_be_clickable(
+            wait = WebDriverWait(driver, 10)
+            kakao_btn = wait.until(EC.element_to_be_clickable(
                 (By.CSS_SELECTOR, "a.btn_login.link_kakao_id")
-            )).click()
-            time.sleep(2)
+            ))
+            kakao_btn.click()
+            time.sleep(3)
+            driver.save_screenshot(f"/tmp/step2_kakao_{attempt}.png")
+            print(f"  카카오 페이지: {driver.current_url[:80]}")
 
-            # 이메일
-            email_el = wait.until(EC.presence_of_element_located((By.ID, "loginId--1")))
+            email_el = WebDriverWait(driver, 10).until(
+                EC.presence_of_element_located((By.ID, "loginId--1"))
+            )
             email_el.clear()
             for char in TISTORY_EMAIL:
                 email_el.send_keys(char)
-                time.sleep(0.04)
-            time.sleep(0.5)
+                time.sleep(0.05)
+            time.sleep(0.3)
 
-            # 비밀번호
             pw_el = driver.find_element(By.ID, "password--2")
             pw_el.clear()
             for char in TISTORY_PASSWORD:
                 pw_el.send_keys(char)
-                time.sleep(0.04)
-            time.sleep(0.5)
+                time.sleep(0.05)
+            time.sleep(0.3)
 
             driver.find_element(By.CSS_SELECTOR, "button.btn_g.highlight.submit").click()
-            time.sleep(4)
+            print("  로그인 버튼 클릭 — 리다이렉트 대기...")
 
-            # 추가 팝업 건너뛰기
-            for sel in ["button.btn_cancel", "a.btn_later", ".btn_skip"]:
-                try:
-                    driver.find_element(By.CSS_SELECTOR, sel).click()
-                    time.sleep(2)
-                    print(f"  팝업 건너뜀")
+            # 카카오 페이지 벗어날 때까지 최대 15초 대기
+            for i in range(30):
+                time.sleep(0.5)
+                current = driver.current_url
+                if "accounts.kakao.com" not in current:
+                    print(f"  리다이렉트 완료: {current[:80]}")
                     break
-                except:
-                    continue
+                # 추가 인증 팝업 처리
+                for sel in ["button.btn_cancel", "a.btn_later", ".btn_skip",
+                            "button[data-action=\'skip\']", ".btn_close"]:
+                    try:
+                        btn = driver.find_element(By.CSS_SELECTOR, sel)
+                        if btn.is_displayed():
+                            btn.click()
+                            print(f"  팝업 닫음: {sel}")
+                            time.sleep(1)
+                            break
+                    except:
+                        continue
+            else:
+                print("  리다이렉트 타임아웃")
+                driver.save_screenshot(f"/tmp/step3_timeout_{attempt}.png")
 
-            # 로그인 성공 확인
+            time.sleep(2)
+            driver.save_screenshot(f"/tmp/step3_after_{attempt}.png")
+            print(f"  현재 URL: {driver.current_url[:80]}")
+
             if is_logged_in(driver):
                 print(f"  로그인 성공! ({attempt}회차)")
                 return True
-            else:
-                print(f"  {attempt}회차 실패, 재시도...")
-                time.sleep(3)
+
+            print(f"  {attempt}회차 실패, 재시도...")
+            time.sleep(3)
 
         except Exception as e:
             print(f"  {attempt}회차 오류: {e}")
+            driver.save_screenshot(f"/tmp/error_{attempt}.png")
             time.sleep(3)
 
     print("  3회 모두 실패")
-    driver.save_screenshot("/tmp/login_fail.png")
     return False
 
 
