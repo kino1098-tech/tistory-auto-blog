@@ -108,21 +108,36 @@ def kakao_login(driver) -> bool:
             driver.save_screenshot(f"/tmp/step2_kakao_{attempt}.png")
             print(f"  카카오 페이지: {driver.current_url[:80]}")
 
+            # 이메일 입력 (React 입력창 대응 — JS 이벤트 직접 발생)
             email_el = WebDriverWait(driver, 10).until(
                 EC.presence_of_element_located((By.ID, "loginId--1"))
             )
-            email_el.clear()
-            for char in TISTORY_EMAIL:
-                email_el.send_keys(char)
-                time.sleep(0.05)
+            email_el.click()
             time.sleep(0.3)
+            # JS로 값 세팅 + React onChange 이벤트 트리거
+            driver.execute_script("""
+                var el = arguments[0];
+                var nativeSetter = Object.getOwnPropertyDescriptor(window.HTMLInputElement.prototype, 'value').set;
+                nativeSetter.call(el, arguments[1]);
+                el.dispatchEvent(new Event('input', { bubbles: true }));
+                el.dispatchEvent(new Event('change', { bubbles: true }));
+            """, email_el, TISTORY_EMAIL)
+            time.sleep(0.5)
+            print(f"  이메일 입력값 확인: {email_el.get_attribute('value')}")
 
+            # 비밀번호 입력
             pw_el = driver.find_element(By.ID, "password--2")
-            pw_el.clear()
-            for char in TISTORY_PASSWORD:
-                pw_el.send_keys(char)
-                time.sleep(0.05)
+            pw_el.click()
             time.sleep(0.3)
+            driver.execute_script("""
+                var el = arguments[0];
+                var nativeSetter = Object.getOwnPropertyDescriptor(window.HTMLInputElement.prototype, 'value').set;
+                nativeSetter.call(el, arguments[1]);
+                el.dispatchEvent(new Event('input', { bubbles: true }));
+                el.dispatchEvent(new Event('change', { bubbles: true }));
+            """, pw_el, TISTORY_PASSWORD)
+            time.sleep(0.5)
+            print(f"  비밀번호 입력값 확인: {'*' * len(pw_el.get_attribute('value'))}")
 
             # 버튼 셀렉터 디버그
             buttons = driver.find_elements(By.TAG_NAME, "button")
