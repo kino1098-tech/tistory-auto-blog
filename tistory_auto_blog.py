@@ -124,7 +124,33 @@ def kakao_login(driver) -> bool:
                 time.sleep(0.05)
             time.sleep(0.3)
 
-            driver.find_element(By.CSS_SELECTOR, "button.btn_g.highlight.submit").click()
+            # 버튼 셀렉터 디버그
+            buttons = driver.find_elements(By.TAG_NAME, "button")
+            print(f"  버튼 목록:")
+            for btn in buttons:
+                print(f"    - class={btn.get_attribute('class')} type={btn.get_attribute('type')} text={btn.text[:20]}")
+
+            # 여러 셀렉터 시도
+            submit_btn = None
+            for sel in [
+                "button.btn_g.highlight.submit",
+                "button[type='submit']",
+                "button.submit",
+                "button.btn_login",
+                "form button",
+            ]:
+                try:
+                    submit_btn = driver.find_element(By.CSS_SELECTOR, sel)
+                    print(f"  로그인 버튼 발견: {sel}")
+                    break
+                except:
+                    continue
+
+            if not submit_btn:
+                print("  로그인 버튼 못 찾음")
+                continue
+
+            submit_btn.click()
             print("  로그인 버튼 클릭 — 리다이렉트 대기...")
 
             # 카카오 페이지 벗어날 때까지 최대 15초 대기
